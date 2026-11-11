@@ -157,6 +157,29 @@ pub(crate) fn set_painted(component: usize) {
     PAINTED.store(component, Ordering::Release);
 }
 
+/// The app's top-level display component, once it has painted.
+static DISPLAY: AtomicUsize = AtomicUsize::new(0);
+
+/// Record the display the overlay hook painted over.
+pub(crate) fn set_display(display: usize) {
+    DISPLAY.store(display, Ordering::Release);
+}
+
+/// The app's top-level display component, or zero before its first paint.
+#[must_use]
+pub fn display() -> usize {
+    DISPLAY.load(Ordering::Acquire)
+}
+
+/// Ask the app to repaint the whole display, so [`crate::Mod::on_overlay`]
+/// runs again on whatever page is showing.  Does nothing before the display's
+/// first paint.
+pub fn repaint_display() {
+    // SAFETY: the overlay hook recorded the app's display, which lives for
+    // the whole process.
+    unsafe { crate::sites::repaint_component(display()) };
+}
+
 /// The component the page last painted, or zero.
 #[must_use]
 pub fn painted() -> usize {

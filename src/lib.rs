@@ -42,7 +42,7 @@ pub mod task;
 
 pub use event::{
     AudioHooks, ButtonEvent, ButtonFlow, CcEvent, CcFlow, EncoderEvent, EncoderFlow, Mod,
-    NoteEvent, NoteFlow, PadAction, PadEvent, PadFlow, PaintEvent, SurfaceEvent, SurfaceFlow,
-    erase, shift,
+    NoteEvent, NoteFlow, OverlayEvent, PadAction, PadEvent, PadFlow, PaintEvent, SurfaceEvent,
+    SurfaceFlow, erase, shift,
 };
 pub use loader::{InstallError, install};

@@ -8,8 +8,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::draw::{self, Graphics, Repaint};
 use crate::event::{
-    self, ButtonEvent, ButtonFlow, CcEvent, CcFlow, EncoderEvent, EncoderFlow, NoteFlow, PadAction,
-    PadEvent, PadFlow, PaintEvent, SurfaceEvent, SurfaceFlow,
+    self, ButtonEvent, ButtonFlow, CcEvent, CcFlow, EncoderEvent, EncoderFlow, NoteFlow,
+    OverlayEvent, PadAction, PadEvent, PadFlow, PaintEvent, SurfaceEvent, SurfaceFlow,
 };
 use crate::hook;
 use crate::image;
@@ -106,6 +106,7 @@ pub unsafe fn install(base: usize) -> bool {
         control::record(original::<usize>(15).unwrap_or(0));
     }
     install_paint(base);
+    install_overlay(base);
     committed
 }
 
@@ -676,6 +677,74 @@ fn install_paint(base: usize) -> bool {
     // SAFETY: the page is writable now.
     unsafe {
         *slot = page_paint as *const () as usize;
+        libc::mprotect(page as *mut libc::c_void, 0x1000, libc::PROT_READ);
+    }
+    true
+}
+
+/// `AC50Display`'s vtable: the app's top-level 320×240 component.
+const DISPLAY_VTABLE: usize = 0x06e1_7160;
+/// The JUCE `Component::paintOverChildren` slot.
+const PAINT_OVER_CHILDREN: usize = 27;
+/// JUCE's empty default, which `AC50Display` does not override.
+const EMPTY_PAINT: usize = 0x010e_2e10;
+
+/// The display's paint-over-children the SDK displaced.
+static mut ORIGINAL_OVERLAY: Option<unsafe extern "C" fn(usize, usize)> = None;
+
+/// The display's paint over its children: every page has drawn, now the mod.
+///
+/// # Safety
+///
+/// The app calls this with its own display and graphics.
+unsafe extern "C" fn display_paint(display: usize, graphics: usize) {
+    // SAFETY: the original is the app's own (empty) paint-over-children.
+    unsafe {
+        if let Some(original) = *core::ptr::addr_of!(ORIGINAL_OVERLAY) {
+            original(display, graphics);
+        }
+    }
+    draw::set_display(display);
+    let event = OverlayEvent { display, graphics };
+    let mut handle = Graphics::new(graphics);
+    with_mod(|module| module.on_overlay(&mut handle, event));
+}
+
+/// Install the overlay over the display's paint-over-children slot.
+fn install_overlay(base: usize) -> bool {
+    let address = base + DISPLAY_VTABLE;
+    // SAFETY: the pointer is only compared, never dereferenced.
+    if unsafe { !image::mapped(address as *const u8) } {
+        return false;
+    }
+    // SAFETY: the address is inside the app's display vtable.
+    let slot = unsafe { (address as *mut usize).add(PAINT_OVER_CHILDREN) };
+    // SAFETY: see above.
+    let original = unsafe { *slot };
+    // Anything but JUCE's empty default means this is not the tested layout.
+    if original != base + EMPTY_PAINT {
+        return false;
+    }
+    // SAFETY: the original is the app's own paint-over-children.
+    unsafe {
+        ORIGINAL_OVERLAY =
+            core::mem::transmute::<usize, Option<unsafe extern "C" fn(usize, usize)>>(original);
+    }
+    let page = (slot as usize) & !0xfff;
+    // SAFETY: the page is inside the app's image.
+    let unlocked = unsafe {
+        libc::mprotect(
+            page as *mut libc::c_void,
+            0x1000,
+            libc::PROT_READ | libc::PROT_WRITE,
+        )
+    } == 0;
+    if !unlocked {
+        return false;
+    }
+    // SAFETY: the page is writable now.
+    unsafe {
+        *slot = display_paint as *const () as usize;
         libc::mprotect(page as *mut libc::c_void, 0x1000, libc::PROT_READ);
     }
     true

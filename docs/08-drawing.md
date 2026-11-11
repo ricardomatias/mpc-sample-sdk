@@ -49,6 +49,36 @@ mpc_sample_sdk::export_mod!(Draw);
 Drawing is immediate: every call reaches the app's graphics object during the
 paint. Do not keep a `Graphics` value after `on_paint` returns.
 
+## Drawing on every page
+
+`on_paint` runs only for the Sample page, in that page's coordinates (it sits
+4 px below the top of the screen). To draw on whatever page is showing, use
+`on_overlay`: it runs after the app's whole display has painted, in screen
+coordinates (320×240), so anything drawn there sits on top of every page.
+
+```rust
+use mpc_sample_sdk::{draw::Graphics, Mod, OverlayEvent};
+
+#[derive(Default)]
+struct Badge;
+
+impl Mod for Badge {
+    fn on_overlay(&mut self, graphics: &mut Graphics, _event: OverlayEvent) {
+        // SAFETY: the app is painting its display on the UI thread.
+        unsafe {
+            graphics.colour(0xffff_cc00);
+            graphics.rect(300, 0, 20, 4);
+        }
+    }
+}
+
+mpc_sample_sdk::export_mod!(Badge);
+```
+
+The graphics are clipped to the area the app is repainting. Call
+`draw::repaint_display()` to ask for a whole new frame, for example when the
+mod's own state changes.
+
 ## Toasts
 
 A toast is one retained line the SDK draws for about a second:

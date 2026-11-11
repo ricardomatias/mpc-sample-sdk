@@ -167,6 +167,18 @@ pub struct PaintEvent {
     pub chop_mode: bool,
 }
 
+/// One paint of the whole display, on any page.
+///
+/// Coordinates are the screen's own: 320×240 from the top-left corner.  The
+/// graphics are clipped to the area the app is repainting.
+#[derive(Clone, Copy, Debug)]
+pub struct OverlayEvent {
+    /// The app's top-level display component.
+    pub display: usize,
+    /// The graphics object to draw on.
+    pub graphics: usize,
+}
+
 /// A planar input hook: one slice per channel, then the rate.
 pub type InputPlanar = fn(&[&[i32]], u32);
 
@@ -245,6 +257,11 @@ pub trait Mod: Send + 'static {
     /// A screen painted.  The app has already drawn; `event.sample_page` says
     /// whether it was the Sample page.
     fn on_paint(&mut self, _graphics: &mut Graphics, _event: PaintEvent) {}
+
+    /// The whole display painted, on any page.  The app and every page have
+    /// already drawn, so whatever is drawn here sits on top of everything.
+    /// Use [`crate::draw::repaint_display`] to ask for another frame.
+    fn on_overlay(&mut self, _graphics: &mut Graphics, _event: OverlayEvent) {}
 
     /// The audio-side hooks, called on the audio thread without the module lock.
     ///
