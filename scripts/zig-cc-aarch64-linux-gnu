@@ -4,12 +4,20 @@
 # rustc asks for `-Wl,-O1`, which lld has deprecated and ignores; zig forwards
 # it verbatim and the linker then prints "ignoring deprecated linker
 # optimization setting" on every build.  Dropping the argument changes nothing
-# in the output and keeps the build silent.  Install this on PATH (or point
-# `[target.aarch64-unknown-linux-gnu] linker` at it) before building.
+# in the output and keeps the build silent.
+#
+# rustc 1.98 also asks for `-Wl,--fix-cortex-a53-843419`, which `zig cc`
+# rejects as an unsupported linker argument.  The erratum is specific to the
+# Cortex-A53; the MPC Sample's RK3566 has Cortex-A55 cores, so the workaround
+# is not needed and the argument is dropped.
+#
+# Install this on PATH (or point `[target.aarch64-unknown-linux-gnu] linker`
+# at it) before building.
 args=
 for arg in "$@"; do
     case $arg in
         -Wl,-O0|-Wl,-O1|-Wl,-O2|-Wl,-O3|-Wl,-Os|-Wl,-Oz) ;;
+        -Wl,--fix-cortex-a53-843419) ;;
         *) args="$args $arg" ;;
     esac
 done
