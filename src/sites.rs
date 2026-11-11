@@ -15,7 +15,7 @@ use crate::hook;
 use crate::image;
 use crate::loader::with_mod;
 use crate::midi::{self, NoteEvent};
-use crate::platform::{control, extract, page, sample, writer};
+use crate::platform::{control, extract, page, sample, shortcut, writer};
 
 /// One site: its image offset and the handler to put there.
 struct Site {
@@ -35,7 +35,7 @@ pub fn notes_ready() -> bool {
 }
 
 /// The displaced function of every site, zero when it was not installed.
-static mut ORIGINALS: [usize; 17] = [0; 17];
+static mut ORIGINALS: [usize; 18] = [0; 18];
 
 /// The displaced function for one site.
 ///
@@ -43,7 +43,7 @@ static mut ORIGINALS: [usize; 17] = [0; 17];
 ///
 /// `T` must be the exact signature of the hooked function.
 unsafe fn original<T: Copy>(index: usize) -> Option<T> {
-    // SAFETY: the table has 17 entries and `index` is a site number.
+    // SAFETY: the table has 18 entries and `index` is a site number.
     let address = unsafe {
         core::ptr::addr_of!(ORIGINALS)
             .cast::<usize>()
@@ -83,7 +83,7 @@ pub unsafe fn install(base: usize) -> bool {
     let committed = hook::commit();
     if !committed && !hook::touched() {
         // SAFETY: no branch is live, so the trampoline table is not observable.
-        unsafe { core::ptr::addr_of_mut!(ORIGINALS).write([0; 17]) };
+        unsafe { core::ptr::addr_of_mut!(ORIGINALS).write([0; 18]) };
         return false;
     }
     // A rollback failure can leave a branch live even though installation
@@ -110,7 +110,7 @@ pub unsafe fn install(base: usize) -> bool {
 }
 
 /// The site table, in install order.
-fn table() -> [Site; 17] {
+fn table() -> [Site; 18] {
     [
         Site {
             offset: 0x0154_5a50,
@@ -180,7 +180,27 @@ fn table() -> [Site; 17] {
             offset: 0x01df_3330,
             handler: sample_service_ctor as *const (),
         },
+        Site {
+            offset: 0x014a_dd30,
+            handler: surface_behaviour_ctor as *const (),
+        },
     ]
+}
+
+/// The control-surface behaviour's constructor: build it, then remember it so
+/// the stock SHIFT + pad shortcuts can be run on it.
+///
+/// # Safety
+///
+/// The app calls this with the new object and its service locator.
+unsafe extern "C" fn surface_behaviour_ctor(behaviour: usize, locator: usize) {
+    // SAFETY: site 17 is this constructor and the app supplies its arguments.
+    let forward = unsafe { original::<unsafe extern "C" fn(usize, usize)>(17) };
+    if let Some(forward) = forward {
+        // SAFETY: this forwards the original constructor arguments unchanged.
+        unsafe { forward(behaviour, locator) };
+        shortcut::remember_behaviour(behaviour);
+    }
 }
 
 unsafe extern "C" fn sample_service_ctor(
@@ -733,7 +753,7 @@ mod tests {
 
     #[test]
     fn the_table_has_one_entry_per_site() {
-        assert_eq!(table().len(), 17);
+        assert_eq!(table().len(), 18);
         assert!(!notes_ready());
     }
 }

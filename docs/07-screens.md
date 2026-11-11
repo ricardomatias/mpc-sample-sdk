@@ -89,3 +89,24 @@ if page::is_sample_page(screen) {
 
 The vtable constant is firmware-specific. If you support another firmware
 version, verify it before using the page helpers.
+
+## Run a stock SHIFT + pad shortcut
+
+With SHIFT held, each pad opens a stock page (PAD 8 is MIDI Config, PAD 16 the
+Project page). A mod that takes one of those chords for itself can still open
+the stock page:
+
+```rust
+use mpc_sample_sdk::platform::shortcut;
+
+if !shortcut::open_midi_settings() {
+    // The app has not built its control-surface behaviour yet.
+}
+// Any other pad, from zero: PAD 16 is 15.
+let _ = shortcut::shift_pad(15);
+```
+
+This runs the app's own SHIFT + pad handler, so it behaves exactly like the
+chord: it is ignored where the chord would be, and the page change is queued to
+the UI thread rather than made during the call. `shortcut::ready()` is false
+until the app has built the object, which happens after `on_start`.

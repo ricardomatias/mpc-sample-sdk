@@ -13,6 +13,7 @@ pub mod page;
 pub mod paths;
 pub mod sample;
 pub mod selection;
+pub mod shortcut;
 pub mod slice;
 pub mod status;
 pub mod trim;
