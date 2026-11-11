@@ -71,6 +71,50 @@ impl Graphics {
         // SAFETY: the caller guarantees a live graphics object.
         unsafe { text(self.handle, line, x, y, width, height, size) };
     }
+
+    /// Draw one line of text in the current colour, placed in its box by
+    /// `align` (always centred vertically).
+    ///
+    /// # Safety
+    /// The graphics object must be live on the UI thread and the firmware initialized.
+    #[expect(clippy::too_many_arguments, reason = "a box, a size and a placement")]
+    pub unsafe fn text_aligned(
+        self,
+        line: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        size: f32,
+        align: Align,
+    ) {
+        // SAFETY: the caller guarantees a live graphics object.
+        unsafe { text_with(self.handle, line, (x, y, width, height), size, align) };
+    }
+}
+
+/// Where a line of text sits across its box.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Align {
+    /// Against the left edge.
+    Left,
+    /// In the middle, as [`Graphics::text`] draws.
+    #[default]
+    Centre,
+    /// Against the right edge.
+    Right,
+}
+
+impl Align {
+    /// The JUCE justification flags: horizontal placement, centred vertically.
+    const fn flags(self) -> i32 {
+        const VERTICALLY_CENTRED: i32 = 0x20;
+        match self {
+            Self::Left => 0x01 | VERTICALLY_CENTRED,
+            Self::Centre => 0x04 | VERTICALLY_CENTRED,
+            Self::Right => 0x02 | VERTICALLY_CENTRED,
+        }
+    }
 }
 
 /// Set the fill colour.
@@ -104,6 +148,21 @@ pub unsafe fn text(
     height: i32,
     size: f32,
 ) {
+    // SAFETY: the caller's contract is this function's.
+    unsafe { text_with(graphics, line, (x, y, width, height), size, Align::Centre) };
+}
+
+/// Draw one line of text in its box with the given placement.
+///
+/// # Safety
+/// The graphics object must be live on the UI thread and the firmware initialized.
+unsafe fn text_with(
+    graphics: usize,
+    line: &str,
+    (x, y, width, height): (i32, i32, i32, i32),
+    size: f32,
+    align: Align,
+) {
     let mut bytes = [0_u8; 96];
     let mut take = line.len().min(bytes.len() - 1);
     while !line.is_char_boundary(take) {
@@ -134,7 +193,7 @@ pub unsafe fn text(
                 y,
                 width,
                 height,
-                flags: 0x24,
+                flags: align.flags(),
                 align: 1,
                 opacity: 0.7,
             },
