@@ -31,7 +31,7 @@ See [the hands-on guide](docs/README.md) and the
 
 It owns everything that is not a feature:
 
-* **Firmware** — find the loaded app, verify the 39 fingerprint words, and map
+* **Firmware** — find the loaded app, verify the 41 fingerprint words, and map
   the image (`image`, `loader`).
 * **Native sample seed** — create a silent, app-owned stereo sample in memory
   for Extract when no pad provides a source. The SDK retains one seed for the

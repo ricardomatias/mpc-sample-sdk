@@ -15,7 +15,7 @@ use crate::hook;
 use crate::image;
 use crate::loader::with_mod;
 use crate::midi::{self, NoteEvent};
-use crate::platform::{control, extract, page, sample, shortcut, writer};
+use crate::platform::{control, extract, meters, page, sample, shortcut, writer};
 
 /// One site: its image offset and the handler to put there.
 struct Site {
@@ -35,7 +35,7 @@ pub fn notes_ready() -> bool {
 }
 
 /// The displaced function of every site, zero when it was not installed.
-static mut ORIGINALS: [usize; 18] = [0; 18];
+static mut ORIGINALS: [usize; 20] = [0; 20];
 
 /// The displaced function for one site.
 ///
@@ -43,7 +43,7 @@ static mut ORIGINALS: [usize; 18] = [0; 18];
 ///
 /// `T` must be the exact signature of the hooked function.
 unsafe fn original<T: Copy>(index: usize) -> Option<T> {
-    // SAFETY: the table has 18 entries and `index` is a site number.
+    // SAFETY: the table has 20 entries and `index` is a site number.
     let address = unsafe {
         core::ptr::addr_of!(ORIGINALS)
             .cast::<usize>()
@@ -83,7 +83,7 @@ pub unsafe fn install(base: usize) -> bool {
     let committed = hook::commit();
     if !committed && !hook::touched() {
         // SAFETY: no branch is live, so the trampoline table is not observable.
-        unsafe { core::ptr::addr_of_mut!(ORIGINALS).write([0; 18]) };
+        unsafe { core::ptr::addr_of_mut!(ORIGINALS).write([0; 20]) };
         return false;
     }
     // A rollback failure can leave a branch live even though installation
@@ -110,7 +110,7 @@ pub unsafe fn install(base: usize) -> bool {
 }
 
 /// The site table, in install order.
-fn table() -> [Site; 18] {
+fn table() -> [Site; 20] {
     [
         Site {
             offset: 0x0154_5a50,
@@ -184,6 +184,14 @@ fn table() -> [Site; 18] {
             offset: 0x014a_dd30,
             handler: surface_behaviour_ctor as *const (),
         },
+        Site {
+            offset: 0x018d_7830,
+            handler: audio_thread_ctor as *const (),
+        },
+        Site {
+            offset: 0x0222_6170,
+            handler: voice_monitor_ctor as *const (),
+        },
     ]
 }
 
@@ -200,6 +208,38 @@ unsafe extern "C" fn surface_behaviour_ctor(behaviour: usize, locator: usize) {
         // SAFETY: this forwards the original constructor arguments unchanged.
         unsafe { forward(behaviour, locator) };
         shortcut::remember_behaviour(behaviour);
+    }
+}
+
+/// `AudioThread`'s constructor: build it, then remember it so the app's own
+/// audio-load meter can be read.
+///
+/// # Safety
+///
+/// The app calls this with the new object and its two collaborators.
+unsafe extern "C" fn audio_thread_ctor(thread: usize, first: usize, second: usize) {
+    // SAFETY: site 18 is this constructor and the app supplies its arguments.
+    let forward = unsafe { original::<unsafe extern "C" fn(usize, usize, usize)>(18) };
+    if let Some(forward) = forward {
+        // SAFETY: this forwards the original constructor arguments unchanged.
+        unsafe { forward(thread, first, second) };
+        meters::remember_audio_thread(thread);
+    }
+}
+
+/// `VoiceCountMonitor`'s constructor: build it, then remember it so the app's
+/// own voice count can be read.
+///
+/// # Safety
+///
+/// The app calls this with the new object, its engine and its disk streamer.
+unsafe extern "C" fn voice_monitor_ctor(monitor: usize, engine: usize, streamer: usize) {
+    // SAFETY: site 19 is this constructor and the app supplies its arguments.
+    let forward = unsafe { original::<unsafe extern "C" fn(usize, usize, usize)>(19) };
+    if let Some(forward) = forward {
+        // SAFETY: this forwards the original constructor arguments unchanged.
+        unsafe { forward(monitor, engine, streamer) };
+        meters::remember_voice_monitor(monitor);
     }
 }
 
@@ -753,7 +793,7 @@ mod tests {
 
     #[test]
     fn the_table_has_one_entry_per_site() {
-        assert_eq!(table().len(), 18);
+        assert_eq!(table().len(), 20);
         assert!(!notes_ready());
     }
 }

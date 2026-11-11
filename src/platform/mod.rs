@@ -8,6 +8,7 @@ pub mod clock;
 pub mod control;
 pub mod effect;
 pub mod extract;
+pub mod meters;
 pub mod pads;
 pub mod page;
 pub mod paths;
