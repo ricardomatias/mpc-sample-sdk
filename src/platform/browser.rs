@@ -81,6 +81,11 @@ const MODEL_ROW: usize = 0x98;
 const MODEL_TOP: usize = 0xd4;
 /// `screen + 0xa8` holds the JUCE `Component` flags of the screen.
 const SCREEN_FLAGS: usize = 0xa8;
+/// `screen + 0x9d8` is 1 while the auto-preview (SCREEN 3, "Preview") is on
+/// and 0 while it is off. Found by toggling it in the stock app and comparing
+/// the screen's bytes; `+0xa2c` follows it too. It keeps its value while the
+/// browser is closed.
+const SCREEN_PREVIEW: usize = 0x9d8;
 /// `ComponentFlags::visibleFlag`.
 const VISIBLE_FLAG: u8 = 0x02;
 /// Contents objects the app builds: Internal and External, for samples and
@@ -485,6 +490,25 @@ pub fn screen_visible() -> bool {
     }
     let mut flags = [0_u8];
     image::read(screen + SCREEN_FLAGS, &mut flags) && visible(flags[0])
+}
+
+/// Whether the browser's auto-preview is on, or `None` before the app built
+/// the browser screen.
+#[must_use]
+pub fn auto_preview() -> Option<bool> {
+    let screen = screen();
+    if screen == 0 || image::read_pointer(screen) != Some(image::base() + SCREEN_VTABLE) {
+        return None;
+    }
+    let mut flag = [0_u8];
+    if !image::read(screen + SCREEN_PREVIEW, &mut flag) {
+        return None;
+    }
+    match flag[0] {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
 }
 
 /// Whether a JUCE flags byte has the visible flag set.
