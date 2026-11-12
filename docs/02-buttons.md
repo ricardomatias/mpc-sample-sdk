@@ -84,3 +84,9 @@ impl Mod for Replay {
 
 Do not replay the same event recursively without a guard; keep a flag in your
 mod or a `Global`.
+
+`sites::replay_button_edge(&event.bytes, key, pressed)` replays only the press or
+only the release. The app learns which keys are held from the events it handles,
+so a mod can read a key "without SHIFT" while the player holds SHIFT: replay the
+release of SHIFT, then the key, then the press of SHIFT. The player's own SHIFT
+release later reaches the app as usual.

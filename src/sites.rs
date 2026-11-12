@@ -939,6 +939,25 @@ pub fn buttons_original() -> Option<unsafe extern "C" fn(usize)> {
 /// later would dereference a stale app object.
 #[must_use]
 pub unsafe fn replay_button(event: &[u8; 16], key: u8) -> bool {
+    // SAFETY: the caller's guarantee covers both edges.
+    unsafe { replay_button_edge(event, key, true) && replay_button_edge(event, key, false) }
+}
+
+/// Replay only the press or only the release of one key on a captured button
+/// event.
+///
+/// The app tracks held keys such as SHIFT from the events it handles, so a mod
+/// can change what the app believes is held: replay the release of SHIFT, then
+/// the key that should be read without it, then the press of SHIFT again.
+///
+/// Returns false when no event was captured or the button hook is missing.
+///
+/// # Safety
+///
+/// As [`replay_button`]: `event` must be a button event captured during the
+/// current callback.
+#[must_use]
+pub unsafe fn replay_button_edge(event: &[u8; 16], key: u8, pressed: bool) -> bool {
     let Some(original) = buttons_original() else {
         return false;
     };
@@ -948,12 +967,9 @@ pub unsafe fn replay_button(event: &[u8; 16], key: u8) -> bool {
     }
     let mut bytes = *event;
     bytes[8] = key;
-    bytes[9] = 0x7f;
+    bytes[9] = if pressed { 0x7f } else { 0 };
     // SAFETY: the captured event is the app's own and the original is its own
     // dispatcher.
-    unsafe { original(bytes.as_ptr() as usize) };
-    bytes[9] = 0;
-    // SAFETY: as above.
     unsafe { original(bytes.as_ptr() as usize) };
     true
 }
@@ -1006,11 +1022,22 @@ pub unsafe fn send_note_off(input: usize, source: i32, pad: i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{SITES, notes_ready, table};
+    use super::{SITES, notes_ready, replay_button, replay_button_edge, table};
 
     #[test]
     fn the_table_has_one_entry_per_site() {
         assert_eq!(table().len(), SITES);
         assert!(!notes_ready());
+    }
+
+    #[test]
+    fn nothing_is_replayed_without_the_app_or_a_captured_event() {
+        let captured = [1_u8; 16];
+        // SAFETY: no dispatcher is installed on the host, so nothing runs.
+        unsafe {
+            assert!(!replay_button_edge(&captured, 0x0e, true));
+            assert!(!replay_button_edge(&[0; 16], 0x0e, false));
+            assert!(!replay_button(&captured, 0x0e));
+        }
     }
 }

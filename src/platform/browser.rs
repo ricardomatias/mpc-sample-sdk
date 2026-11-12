@@ -74,6 +74,11 @@ const LIST_BOX_CONTENTS: usize = 0x188;
 const LIST_BOX_MODEL: usize = 0xc0;
 /// `[model + 0x98]` is the row the cursor is on (an `i32`).
 const MODEL_ROW: usize = 0x98;
+/// The object at `[list box + 0xc0]` is also the component that holds every
+/// row; its bounds (x, y, width, height as `i32`s) start at `+0xd0`, so `+0xd4`
+/// is where its top sits in the visible part of the list: zero at the top of
+/// the list and negative once the list has scrolled down.
+const MODEL_TOP: usize = 0xd4;
 /// `screen + 0xa8` holds the JUCE `Component` flags of the screen.
 const SCREEN_FLAGS: usize = 0xa8;
 /// `ComponentFlags::visibleFlag`.
@@ -169,6 +174,14 @@ impl Shown {
             self.entries.remove(0);
         }
         self.entries.push((contents, files, replaced));
+    }
+
+    /// Every path `contents` shows, in row order.
+    fn files(&self, contents: usize) -> Vec<PathBuf> {
+        self.entries
+            .iter()
+            .find(|entry| entry.0 == contents)
+            .map_or_else(Vec::new, |entry| entry.1.clone())
     }
 
     /// The path in row `row` of what `contents` shows.
@@ -489,6 +502,35 @@ pub fn cursor_row() -> Option<i32> {
     let model = image::read_pointer(screen + SCREEN_LIST_BOX + LIST_BOX_MODEL)?;
     let row = image::read_u32(model.checked_add(MODEL_ROW)?)?;
     Some(row.cast_signed())
+}
+
+/// How far the list has scrolled, in pixels: zero while the first row is at
+/// the top, more as the list moves up.  `None` when it cannot be read.
+///
+/// Row `n` of a list whose rows are `h` pixels tall starts `n * h - scrolled`
+/// pixels below the top of the list, so a mod that draws on the browser can
+/// tell which rows are on screen and where.
+#[must_use]
+pub fn scrolled() -> Option<i32> {
+    let screen = screen();
+    if screen == 0 {
+        return None;
+    }
+    let rows = image::read_pointer(screen + SCREEN_LIST_BOX + LIST_BOX_MODEL)?;
+    let top = image::read_u32(rows.checked_add(MODEL_TOP)?)?.cast_signed();
+    Some(top.saturating_neg().max(0))
+}
+
+/// Every file and folder the list box shows, in row order (after any
+/// replacement).  Empty before the browser has listed anything.
+#[must_use]
+pub fn listed() -> Vec<PathBuf> {
+    contents().map_or_else(Vec::new, |contents| {
+        SHOWN
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .files(contents)
+    })
 }
 
 /// The file or folder the cursor is on, as listed (after any replacement).
@@ -855,6 +897,25 @@ mod tests {
             shown.record(contents, Vec::new(), false);
         }
         assert_eq!(shown.entries.len(), MAX_CONTENTS);
+    }
+
+    #[test]
+    fn the_rows_on_screen_are_what_the_contents_object_last_showed() {
+        let mut shown = Shown::new();
+        assert!(shown.files(1).is_empty());
+        let rows = vec![PathBuf::from("/data/a.wav"), PathBuf::from("/data/b.wav")];
+        shown.record(1, rows.clone(), false);
+        shown.record(2, vec![PathBuf::from("/media/x.wav")], true);
+        assert_eq!(shown.files(1), rows);
+        assert_eq!(shown.files(2), [PathBuf::from("/media/x.wav")]);
+        shown.record(1, Vec::new(), true);
+        assert!(shown.files(1).is_empty());
+    }
+
+    #[test]
+    fn nothing_scrolls_or_lists_before_the_app_builds_the_browser() {
+        assert_eq!(scrolled(), None);
+        assert!(listed().is_empty());
     }
 
     #[test]
