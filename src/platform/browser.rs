@@ -184,6 +184,13 @@ impl Shown {
             .map_or_else(Vec::new, |entry| entry.1.clone())
     }
 
+    /// Whether what `contents` shows is a mod's replacement.
+    fn is_replaced(&self, contents: usize) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.0 == contents && entry.2)
+    }
+
     /// The path in row `row` of what `contents` shows.
     fn row(&self, contents: usize, row: i32) -> Option<PathBuf> {
         let files = &self.entries.iter().find(|entry| entry.0 == contents)?.1;
@@ -530,6 +537,23 @@ pub fn listed() -> Vec<PathBuf> {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .files(contents)
+    })
+}
+
+/// Whether the list box shows a listing that a mod replaced.
+///
+/// The app builds each location's listing when it opens a folder or is asked
+/// to refresh, so a location can still show a listing from before a mod
+/// changed its mind.  Comparing this and [`listed`] with what the mod wants
+/// tells it to call [`refresh`].  A listing is also stock when the mod could
+/// not be reached while the app built it (another callback held the module).
+#[must_use]
+pub fn is_replaced() -> bool {
+    contents().is_some_and(|contents| {
+        SHOWN
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_replaced(contents)
     })
 }
 
@@ -913,9 +937,23 @@ mod tests {
     }
 
     #[test]
+    fn a_contents_object_shows_a_replacement_only_when_a_mod_made_it() {
+        let mut shown = Shown::new();
+        assert!(!shown.is_replaced(1), "nothing is known about it yet");
+        shown.record(1, vec![PathBuf::from("/data/a.wav")], false);
+        shown.record(2, vec![PathBuf::from("/media/x.wav")], true);
+        assert!(!shown.is_replaced(1));
+        assert!(shown.is_replaced(2));
+        // The next listing decides again.
+        shown.record(2, vec![PathBuf::from("/media/x.wav")], false);
+        assert!(!shown.is_replaced(2));
+    }
+
+    #[test]
     fn nothing_scrolls_or_lists_before_the_app_builds_the_browser() {
         assert_eq!(scrolled(), None);
         assert!(listed().is_empty());
+        assert!(!is_replaced());
     }
 
     #[test]

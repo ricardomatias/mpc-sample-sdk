@@ -158,6 +158,11 @@ impl Mod for Flat {
   `h` pixels tall starts `n * h - scrolled` pixels below the top of the list, so
   a mod can draw on the rows that are on screen (inside
   `Mod::on_overlay`).
+- `browser::is_replaced()` says whether the list box shows a replaced listing.
+  The hook cannot always reach the mod: if another callback holds the module
+  when the app builds a listing (a button, for example), the app's own listing
+  shows. A mod that must never show a stock list compares `is_replaced` and
+  `listed` with what it wants, and calls `refresh` while they differ.
 - `Mod::on_browser_list` runs on the UI thread every time a folder is listed.
   `Listing::replace` may list files from any folder or location, in any order;
   preview (SCREEN 3) and load (push DATA) follow the replaced rows, because the
