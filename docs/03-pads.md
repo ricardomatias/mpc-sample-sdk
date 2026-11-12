@@ -109,3 +109,36 @@ let activated = unsafe { pads::set_layer_active(surface, pad, true) };
 On firmware 1.3.0.12, Ghidra identifies this byte at `InstrumentLayer + 0xb18`;
 setting it on a newly rendered layer makes playback audible immediately and
 persists as `active: true` when the project is saved.
+
+## Select a pad without sounding it
+
+A pad press reaches the app on its control-surface path (`on_surface`), which
+makes the pad current, and then on its note path (`on_pad`), which sounds it
+and sends it to MIDI OUT. The stock SAMPLE + pad chord stops after the first.
+`pads::SilentSelect` does the same for SAMPLE SELECT + pad: it consumes the
+note-path press while SAMPLE SELECT is held, and that pad's release, and
+forwards everything else:
+
+```rust
+use mpc_sample_sdk::platform::pads::SilentSelect;
+use mpc_sample_sdk::{Mod, PadEvent, PadFlow, SurfaceEvent, SurfaceFlow};
+
+#[derive(Default)]
+struct Picker {
+    silent: SilentSelect,
+}
+
+impl Mod for Picker {
+    fn on_surface(&mut self, _event: SurfaceEvent) -> SurfaceFlow {
+        SurfaceFlow::Forward // the pad becomes current here
+    }
+
+    fn on_pad(&mut self, event: PadEvent) -> PadFlow {
+        self.silent.on_pad(&event, mpc_sample_sdk::event::sample_select())
+    }
+}
+```
+
+`event::sample_select()` is tracked by the SDK from the button hook, like
+`event::shift()`. Silencing calls nothing in the app; it skips the voice and the
+MIDI note.

@@ -50,7 +50,7 @@ if base == 0 {
 ```
 
 `loader::find_main()` returns the load address, or zero. `firmware_ok(base)`
-checks all 41 site words.
+checks all 46 site words.
 
 ## Manual installation
 

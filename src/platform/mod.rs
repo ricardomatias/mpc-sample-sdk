@@ -4,6 +4,7 @@
 //! feature state.  A mod composes them through the [`crate::Mod`] trait or calls
 //! them directly from its own feature code.
 
+pub mod browser;
 pub mod clock;
 pub mod control;
 pub mod effect;
@@ -18,5 +19,6 @@ pub mod shortcut;
 pub mod slice;
 pub mod status;
 pub mod trim;
+pub mod ui;
 pub mod wav;
 pub mod writer;

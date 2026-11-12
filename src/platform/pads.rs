@@ -151,9 +151,192 @@ pub unsafe fn set_layer_active(surface: usize, pad: i32, active: bool) -> bool {
     image::read(address, &mut actual) && actual == expected
 }
 
+/// SAMPLE SELECT's button code.
+pub const SAMPLE_SELECT: u32 = 36;
+
+/// Makes a pad pressed while SAMPLE SELECT is held the current pad without
+/// sounding it.
+///
+/// A pad press reaches the app twice: first on its control-surface path
+/// ([`crate::Mod::on_surface`]), which makes the pad current, then on its note
+/// path ([`crate::Mod::on_pad`]), which sounds it and sends it to MIDI OUT.
+/// The stock SAMPLE + pad chord never calls the note path; this does the same
+/// for SAMPLE SELECT + pad by consuming the note path's press, and the release
+/// that belongs to it, while forwarding the surface event untouched.  Nothing
+/// is called in the app: a silenced pad costs less than a sounded one.
+///
+/// The mod owns one and asks it about every pad event:
+///
+/// ```
+/// use mpc_sample_sdk::platform::pads::SilentSelect;
+/// use mpc_sample_sdk::{Mod, PadEvent, PadFlow};
+///
+/// #[derive(Default)]
+/// struct Picker {
+///     silent: SilentSelect,
+/// }
+///
+/// impl Mod for Picker {
+///     fn on_pad(&mut self, event: PadEvent) -> PadFlow {
+///         self.silent.on_pad(&event, mpc_sample_sdk::event::sample_select())
+///     }
+/// }
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SilentSelect {
+    /// Pads whose press was consumed and whose release is still due.
+    pending: u128,
+}
+
+impl SilentSelect {
+    /// No pad silenced.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { pending: 0 }
+    }
+
+    /// Decide one note-path pad event.
+    ///
+    /// `sample_select_held` is whether SAMPLE SELECT is down
+    /// ([`crate::event::sample_select`]).  A press while it is held is
+    /// consumed, and so is that pad's next release, even if SAMPLE SELECT was
+    /// let go in between.  Everything else is forwarded.
+    pub fn on_pad(&mut self, event: &crate::PadEvent, sample_select_held: bool) -> crate::PadFlow {
+        let Some(bit) = pad_bit(event.pad) else {
+            return crate::PadFlow::Forward;
+        };
+        match event.action {
+            crate::PadAction::Press if sample_select_held => {
+                self.pending |= bit;
+                crate::PadFlow::Consume
+            }
+            crate::PadAction::Release if self.pending & bit != 0 => {
+                self.pending &= !bit;
+                crate::PadFlow::Consume
+            }
+            crate::PadAction::Press | crate::PadAction::Release => crate::PadFlow::Forward,
+        }
+    }
+
+    /// Whether `pad` was selected silently and its release is still due.
+    #[must_use]
+    pub fn is_silenced(&self, pad: i32) -> bool {
+        pad_bit(pad).is_some_and(|bit| self.pending & bit != 0)
+    }
+}
+
+/// The bit for a pad index the app reports, or `None` out of range.
+fn pad_bit(pad: i32) -> Option<u128> {
+    let index = u32::try_from(pad).ok().filter(|index| *index < 128)?;
+    Some(1_u128 << index)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FREE_PAD, MAX_PADS, PAD_BUSY, PAD_STATES, has_room};
+    use super::{FREE_PAD, MAX_PADS, PAD_BUSY, PAD_STATES, SilentSelect, has_room};
+    use crate::{PadAction, PadEvent, PadFlow};
+
+    fn pad(action: PadAction, pad: i32) -> PadEvent {
+        PadEvent {
+            action,
+            input: 0,
+            source: 0,
+            pad,
+            properties: 0,
+            velocity: if action == PadAction::Press { 0.8 } else { 0.0 },
+        }
+    }
+
+    #[test]
+    fn a_pad_pressed_under_sample_select_is_silent_until_its_release() {
+        let mut silent = SilentSelect::new();
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 4), true),
+            PadFlow::Consume
+        );
+        assert!(silent.is_silenced(4));
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Release, 4), true),
+            PadFlow::Consume
+        );
+        assert!(!silent.is_silenced(4));
+        assert_eq!(silent, SilentSelect::new());
+    }
+
+    #[test]
+    fn the_release_stays_silent_after_sample_select_is_let_go() {
+        let mut silent = SilentSelect::new();
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 0), true),
+            PadFlow::Consume
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Release, 0), false),
+            PadFlow::Consume
+        );
+        // The next press is an ordinary one again.
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 0), false),
+            PadFlow::Forward
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Release, 0), false),
+            PadFlow::Forward
+        );
+    }
+
+    #[test]
+    fn pads_without_sample_select_sound_as_usual() {
+        let mut silent = SilentSelect::new();
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 2), false),
+            PadFlow::Forward
+        );
+        // A release of a pad pressed before SAMPLE SELECT went down sounds off.
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Release, 2), true),
+            PadFlow::Forward
+        );
+    }
+
+    #[test]
+    fn each_pad_is_tracked_on_its_own() {
+        let mut silent = SilentSelect::new();
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 1), false),
+            PadFlow::Forward
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 15), true),
+            PadFlow::Consume
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Release, 1), true),
+            PadFlow::Forward
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Release, 15), false),
+            PadFlow::Consume
+        );
+    }
+
+    #[test]
+    fn out_of_range_pads_are_forwarded() {
+        let mut silent = SilentSelect::new();
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, -1), true),
+            PadFlow::Forward
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 128), true),
+            PadFlow::Forward
+        );
+        assert_eq!(
+            silent.on_pad(&pad(PadAction::Press, 127), true),
+            PadFlow::Consume
+        );
+        assert!(!silent.is_silenced(-1));
+    }
 
     #[test]
     fn an_unknown_program_has_no_proven_room() {

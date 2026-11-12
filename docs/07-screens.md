@@ -110,3 +110,57 @@ This runs the app's own SHIFT + pad handler, so it behaves exactly like the
 chord: it is ignored where the chord would be, and the page change is queued to
 the UI thread rather than made during the call. `shortcut::ready()` is false
 until the app has built the object, which happens after `on_start`.
+
+## The Sample Browser
+
+`platform::browser` reads the stock Sample Browser (SAMPLE SELECT) and lets a
+mod change what it lists:
+
+```rust
+use mpc_sample_sdk::platform::browser::{self, Kind, Listing};
+use mpc_sample_sdk::{ButtonEvent, ButtonFlow, Mod};
+use std::path::PathBuf;
+
+#[derive(Default)]
+struct Flat {
+    on: bool,
+}
+
+impl Mod for Flat {
+    fn on_browser_list(&mut self, listing: &mut Listing) {
+        // The project browser uses the same classes: leave it alone.
+        if self.on && listing.kind() == Some(Kind::Samples) {
+            listing.replace(vec![
+                PathBuf::from("/data/UserContent/Samples/User/Kicks/Kick 1.wav"),
+                PathBuf::from("/media/MPC SAMPLE/MPC-Sample/Samples/Kick 2.wav"),
+            ]);
+        }
+    }
+
+    fn on_button(&mut self, event: ButtonEvent) -> ButtonFlow {
+        if event.code == 54 && event.pressed && browser::is_open() {
+            self.on = !self.on;
+            // Posted to the UI thread; on_browser_list runs again there.
+            let _ = browser::refresh();
+            return ButtonFlow::Consume;
+        }
+        ButtonFlow::Forward
+    }
+}
+```
+
+- `browser::is_open()`: the browser screen is visible and listing samples.
+- `browser::state()`: `Some(State { folder, location, highlighted })` while it
+  is open; `folder()`, `location()` (`Internal` or `External`, the SCREEN 2
+  tab), `highlighted()` and `cursor_row()` read the parts.
+- `Mod::on_browser_list` runs on the UI thread every time a folder is listed.
+  `Listing::replace` may list files from any folder or location, in any order;
+  preview (SCREEN 3) and load (push DATA) follow the replaced rows, because the
+  SDK also answers the list box's row lookup.
+- `browser::refresh()` asks for a new listing from any callback. Each location
+  has its own listing: after SCREEN 2 switches location, refresh again.
+- Preview is the stock auto-preview: moving the cursor plays the highlighted
+  file, and SCREEN 3 switches auto-preview on and off.
+
+`platform::ui::post(job)` runs a `fn()` on the UI thread through the same queue
+the stock SHIFT + pad shortcuts use; `refresh` is built on it.

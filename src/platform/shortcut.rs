@@ -25,6 +25,11 @@ pub(crate) fn remember_behaviour(behaviour: usize) {
     BEHAVIOUR.store(behaviour, Ordering::Release);
 }
 
+/// The live behaviour object, zero until the app has built it.
+pub(crate) fn behaviour() -> usize {
+    BEHAVIOUR.load(Ordering::Acquire)
+}
+
 /// Whether the app has built the object the shortcuts run on.
 #[must_use]
 pub fn ready() -> bool {

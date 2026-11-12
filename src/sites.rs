@@ -15,7 +15,7 @@ use crate::hook;
 use crate::image;
 use crate::loader::with_mod;
 use crate::midi::{self, NoteEvent};
-use crate::platform::{control, extract, meters, page, sample, shortcut, writer};
+use crate::platform::{browser, control, extract, meters, page, sample, shortcut, writer};
 
 /// One site: its image offset and the handler to put there.
 struct Site {
@@ -34,8 +34,11 @@ pub fn notes_ready() -> bool {
     NOTE_ON_OK.load(Ordering::Acquire) && NOTE_OFF_OK.load(Ordering::Acquire)
 }
 
+/// How many sites the SDK installs.
+const SITES: usize = 23;
+
 /// The displaced function of every site, zero when it was not installed.
-static mut ORIGINALS: [usize; 20] = [0; 20];
+static mut ORIGINALS: [usize; SITES] = [0; SITES];
 
 /// The displaced function for one site.
 ///
@@ -43,7 +46,7 @@ static mut ORIGINALS: [usize; 20] = [0; 20];
 ///
 /// `T` must be the exact signature of the hooked function.
 unsafe fn original<T: Copy>(index: usize) -> Option<T> {
-    // SAFETY: the table has 20 entries and `index` is a site number.
+    // SAFETY: the table has `SITES` entries and `index` is a site number.
     let address = unsafe {
         core::ptr::addr_of!(ORIGINALS)
             .cast::<usize>()
@@ -83,7 +86,7 @@ pub unsafe fn install(base: usize) -> bool {
     let committed = hook::commit();
     if !committed && !hook::touched() {
         // SAFETY: no branch is live, so the trampoline table is not observable.
-        unsafe { core::ptr::addr_of_mut!(ORIGINALS).write([0; 20]) };
+        unsafe { core::ptr::addr_of_mut!(ORIGINALS).write([0; SITES]) };
         return false;
     }
     // A rollback failure can leave a branch live even though installation
@@ -111,7 +114,7 @@ pub unsafe fn install(base: usize) -> bool {
 }
 
 /// The site table, in install order.
-fn table() -> [Site; 20] {
+fn table() -> [Site; SITES] {
     [
         Site {
             offset: 0x0154_5a50,
@@ -193,6 +196,18 @@ fn table() -> [Site; 20] {
             offset: 0x0222_6170,
             handler: voice_monitor_ctor as *const (),
         },
+        Site {
+            offset: browser::BUILD_LIST,
+            handler: browser_list as *const (),
+        },
+        Site {
+            offset: browser::SCREEN_CTOR,
+            handler: browser_screen_ctor as *const (),
+        },
+        Site {
+            offset: browser::GET_FILE,
+            handler: browser_file_entry as *const (),
+        },
     ]
 }
 
@@ -241,6 +256,136 @@ unsafe extern "C" fn voice_monitor_ctor(monitor: usize, engine: usize, streamer:
         // SAFETY: this forwards the original constructor arguments unchanged.
         unsafe { forward(monitor, engine, streamer) };
         meters::remember_voice_monitor(monitor);
+    }
+}
+
+/// The Sample Browser's list builder: let the app build the listing, then let
+/// the mod replace it.
+///
+/// # Safety
+///
+/// The app calls this with its own `AC50DirectoryContents`; the vector is
+/// returned through `x8`, which the C ABI of `RawFiles` reproduces.
+unsafe extern "C" fn browser_list(contents: usize) -> browser::RawFiles {
+    // SAFETY: site 20 is this builder and the app supplies its argument.
+    let forward = unsafe { original::<unsafe extern "C" fn(usize) -> browser::RawFiles>(20) };
+    let Some(forward) = forward else {
+        return browser::RawFiles {
+            begin: 0,
+            end: 0,
+            capacity: 0,
+        };
+    };
+    // SAFETY: this forwards the original argument unchanged.
+    let built = unsafe { forward(contents) };
+    let mut listing = browser::Listing::new(
+        browser::kind_of(contents),
+        browser::folder_of(contents),
+        browser::read_files(&built),
+    );
+    let replacement = with_mod(|module| {
+        module.on_browser_list(&mut listing);
+        listing.take_replacement()
+    })
+    .flatten();
+    let Some(paths) = replacement else {
+        browser::remember_listing(contents, listing.into_files(), false);
+        return built;
+    };
+    // SAFETY: the builder runs on the UI thread, where the app builds strings.
+    if let Some(replaced) = unsafe { browser::build_files(&paths) } {
+        // SAFETY: the app's vector is ours to drop; it is never returned.
+        unsafe { browser::release_files(built) };
+        browser::remember_listing(contents, paths, true);
+        return replaced;
+    }
+    browser::remember_listing(contents, listing.into_files(), false);
+    built
+}
+
+/// The entry of the row lookup: the app passes its result slot in `x8`, which
+/// a Rust function cannot name, so it moves to the third argument.
+#[cfg(target_arch = "aarch64")]
+#[unsafe(naked)]
+unsafe extern "C" fn browser_file_entry() {
+    core::arch::naked_asm!(
+        // `bti c`: the relay reaches this with `br x16`.
+        "hint #34",
+        "mov x2, x8",
+        "b {handler}",
+        handler = sym browser_file,
+    );
+}
+
+/// No row lookup off the device.
+#[cfg(not(target_arch = "aarch64"))]
+unsafe extern "C" fn browser_file_entry() {}
+
+/// The Sample Browser's row lookup: answer from a replaced listing, else let
+/// the app answer from the folder.
+///
+/// # Safety
+///
+/// The app calls this (through [`browser_file_entry`]) with its contents
+/// object, a row and its uninitialised result slot.
+unsafe extern "C" fn browser_file(
+    contents: usize,
+    row: i32,
+    out: *mut browser::OptionalFile,
+) -> *mut browser::OptionalFile {
+    if out.is_null() {
+        return out;
+    }
+    match browser::replaced_row(contents, row) {
+        browser::Row::Stock => {}
+        browser::Row::Path(path) => {
+            // SAFETY: `out` is the app's result slot for this call.
+            unsafe { browser::write_file(out, Some(&path)) };
+            return out;
+        }
+        browser::Row::Empty => {
+            // SAFETY: as above.
+            unsafe { browser::write_file(out, None) };
+            return out;
+        }
+    }
+    // SAFETY: site 22 is this lookup.
+    let Some(forward) = (unsafe { original::<usize>(22) }) else {
+        // SAFETY: as above.
+        unsafe { browser::write_file(out, None) };
+        return out;
+    };
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: the original is the app's own lookup; its non-trivial return
+    // uses `x8`, which gets the app's own result slot back.
+    unsafe {
+        core::arch::asm!(
+            "blr {forward}",
+            forward = in(reg) forward,
+            in("x0") contents,
+            in("x1") row,
+            in("x8") out,
+            clobber_abi("C"),
+        );
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    let _ = (forward, contents, row);
+    out
+}
+
+/// `FileSelectScreen`'s constructor: build it, then remember it so the
+/// browser's state can be read.
+///
+/// # Safety
+///
+/// The app calls this with the new object and its service locator.
+unsafe extern "C" fn browser_screen_ctor(screen: usize, locator: usize) {
+    // SAFETY: site 21 is this constructor and the app supplies its arguments.
+    let forward = unsafe { original::<unsafe extern "C" fn(usize, usize)>(21) };
+    if let Some(forward) = forward {
+        // SAFETY: this forwards the original constructor arguments unchanged.
+        unsafe { forward(screen, locator) };
+        browser::remember_screen(screen);
     }
 }
 
@@ -485,6 +630,9 @@ unsafe extern "C" fn buttons(event: usize) -> i32 {
     }
     if code == 0x09 {
         event::set_erase(pressed);
+    }
+    if code == crate::platform::pads::SAMPLE_SELECT {
+        event::set_sample_select(pressed);
     }
     if flow == ButtonFlow::Forward {
         // SAFETY: the original is the app's own handler.
@@ -858,11 +1006,11 @@ pub unsafe fn send_note_off(input: usize, source: i32, pad: i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{notes_ready, table};
+    use super::{SITES, notes_ready, table};
 
     #[test]
     fn the_table_has_one_entry_per_site() {
-        assert_eq!(table().len(), 20);
+        assert_eq!(table().len(), SITES);
         assert!(!notes_ready());
     }
 }

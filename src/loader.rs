@@ -13,7 +13,7 @@ use crate::sites;
 
 /// Two words of every site the SDK patches, so a different firmware is refused
 /// instead of hooked at the wrong offsets.
-const FIRMWARE_SITES: [(usize, u32); 41] = [
+const FIRMWARE_SITES: [(usize, u32); 46] = [
     (0x00f5_35c0, 0xd503_233f),
     (0x0114_9880, 0xd503_233f),
     (0x013b_b930, 0xd503_233f),
@@ -21,12 +21,17 @@ const FIRMWARE_SITES: [(usize, u32); 41] = [
     (0x0143_ed40, 0xd503_233f),
     (0x0143_f0b0, 0xd503_233f),
     (0x014a_7580, 0xd503_233f),
+    (0x014a_a3f0, 0xd503_245f),
     (0x014a_d170, 0xd503_233f),
     (0x014a_dd30, 0xd503_233f),
+    (0x014f_88f0, 0xd503_233f),
+    (0x014f_8d60, 0xd503_233f),
+    (0x014f_95c0, 0xd503_233f),
     (0x0154_5a50, 0xd503_233f),
     (0x0159_f230, 0x3940_2003),
     (0x0159_f2f0, 0xd503_245f),
     (0x015e_70c0, 0xd503_233f),
+    (0x0160_bbf0, 0xd503_233f),
     (0x016b_6060, 0xd503_245f),
     (0x018d_7830, 0xd503_233f),
     (0x0192_d040, 0xd503_233f),

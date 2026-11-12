@@ -263,6 +263,13 @@ pub trait Mod: Send + 'static {
     /// Use [`crate::draw::repaint_display`] to ask for another frame.
     fn on_overlay(&mut self, _graphics: &mut Graphics, _event: OverlayEvent) {}
 
+    /// The Sample Browser built a listing and is about to show it.
+    ///
+    /// Call [`crate::platform::browser::Listing::replace`] to show other files
+    /// instead.  Runs on the UI thread every time the browser lists a folder,
+    /// and again after [`crate::platform::browser::refresh`].
+    fn on_browser_list(&mut self, _listing: &mut crate::platform::browser::Listing) {}
+
     /// The audio-side hooks, called on the audio thread without the module lock.
     ///
     /// They are copied out once at install; return only functions that read and
@@ -276,6 +283,8 @@ pub trait Mod: Send + 'static {
 static SHIFT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 /// Whether ERASE is held, tracked by the SDK from the button hook.
 static ERASE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+/// Whether SAMPLE SELECT is held, tracked by the SDK from the button hook.
+static SAMPLE_SELECT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// The encoder's data target inside a surface object.
 pub const DATA_TARGET_OFFSET: usize = 0x2da8;
@@ -302,9 +311,21 @@ pub fn erase() -> bool {
     ERASE.load(core::sync::atomic::Ordering::Acquire)
 }
 
+/// Whether SAMPLE SELECT is held right now.
+#[must_use]
+pub fn sample_select() -> bool {
+    SAMPLE_SELECT.load(core::sync::atomic::Ordering::Acquire)
+}
+
 /// Record the SHIFT state; the button site calls this after the mod decided.
 pub(crate) fn set_shift(held: bool) {
     SHIFT.store(held, core::sync::atomic::Ordering::Release);
+}
+
+/// Record the SAMPLE SELECT state; the button site calls this after the mod
+/// decided.
+pub(crate) fn set_sample_select(held: bool) {
+    SAMPLE_SELECT.store(held, core::sync::atomic::Ordering::Release);
 }
 
 /// Record the ERASE state; the button site calls this after the mod decided.
