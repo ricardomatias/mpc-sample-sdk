@@ -153,6 +153,11 @@ impl Mod for Flat {
 - `browser::state()`: `Some(State { folder, location, highlighted })` while it
   is open; `folder()`, `location()` (`Internal` or `External`, the SCREEN 2
   tab), `highlighted()` and `cursor_row()` read the parts.
+- `browser::listed()` gives the paths the list box shows, in row order, and
+  `browser::scrolled()` how many pixels the list has moved up. Row `n` of rows
+  `h` pixels tall starts `n * h - scrolled` pixels below the top of the list, so
+  a mod can draw on the rows that are on screen (inside
+  `Mod::on_overlay`).
 - `Mod::on_browser_list` runs on the UI thread every time a folder is listed.
   `Listing::replace` may list files from any folder or location, in any order;
   preview (SCREEN 3) and load (push DATA) follow the replaced rows, because the
