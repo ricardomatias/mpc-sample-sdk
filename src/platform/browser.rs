@@ -19,7 +19,8 @@
 //!
 //! The same classes serve the project browser, so every reading says which
 //! [`Kind`] of listing it is: a contents object's root folder is `.../Samples`
-//! or `.../Projects`.
+//! or `.../Projects`, or, on a card, the card itself (`/media/MPC SAMPLE`),
+//! and then the folder being shown tells (`MPC-Sample/Samples`).
 //!
 //! The browser's state comes from the app's own objects: the screen is open
 //! when its JUCE visible flag is set, the folder is the contents object's
@@ -112,6 +113,34 @@ impl Kind {
             Some(b"Samples") => Self::Samples,
             Some(b"Projects") => Self::Projects,
             _ => Self::Other,
+        }
+    }
+
+    /// The kind of listing a contents object makes, from its root folder and
+    /// the folder it is showing.
+    ///
+    /// Internal roots are `.../Samples` and `.../Projects` and say it
+    /// themselves.  A card's root is the card (`/media/MPC SAMPLE`), and the
+    /// browser opens in its `MPC-Sample/Samples` or `MPC-Sample/Projects`, so
+    /// for a root that says nothing the first folder below it (after an
+    /// `MPC-Sample` folder) does.
+    #[must_use]
+    pub fn of(root: &Path, folder: Option<&Path>) -> Self {
+        let named = Self::of_root(root);
+        if named != Self::Other {
+            return named;
+        }
+        let Some(inside) = folder.and_then(|folder| folder.strip_prefix(root).ok()) else {
+            return Self::Other;
+        };
+        let mut parts = inside.components().map(|part| part.as_os_str().as_bytes());
+        match (parts.next(), parts.next()) {
+            (Some(b"MPC-Sample"), Some(name)) | (Some(name), _) => match name {
+                b"Samples" => Self::Samples,
+                b"Projects" => Self::Projects,
+                _ => Self::Other,
+            },
+            (None, _) => Self::Other,
         }
     }
 }
@@ -404,7 +433,7 @@ pub fn root_of(contents: usize) -> Option<PathBuf> {
 /// What kind of listing a contents object makes.
 #[must_use]
 pub fn kind_of(contents: usize) -> Option<Kind> {
-    root_of(contents).map(|root| Kind::of_root(&root))
+    root_of(contents).map(|root| Kind::of(&root, folder_of(contents).as_deref()))
 }
 
 /// The folder a contents object is showing.
@@ -762,6 +791,33 @@ mod tests {
         );
         assert_eq!(Kind::of_root(Path::new("/content/Kits")), Kind::Other);
         assert_eq!(Kind::of_root(Path::new("/")), Kind::Other);
+    }
+
+    #[test]
+    fn a_cards_root_says_nothing_so_the_folder_does() {
+        let card = Path::new("/media/MPC SAMPLE");
+        let of = |folder: &str| Kind::of(card, Some(Path::new(folder)));
+        assert_eq!(of("/media/MPC SAMPLE/MPC-Sample/Samples"), Kind::Samples);
+        assert_eq!(
+            of("/media/MPC SAMPLE/MPC-Sample/Samples/Drums/Kicks"),
+            Kind::Samples
+        );
+        assert_eq!(of("/media/MPC SAMPLE/MPC-Sample/Projects"), Kind::Projects);
+        assert_eq!(of("/media/MPC SAMPLE/Samples"), Kind::Samples);
+        assert_eq!(of("/media/MPC SAMPLE/MPC-Sample"), Kind::Other);
+        assert_eq!(of("/media/MPC SAMPLE"), Kind::Other);
+        assert_eq!(of("/media/MPC SAMPLE/MPC-Sample/Other"), Kind::Other);
+        assert_eq!(of("/media/Other/Samples"), Kind::Other);
+        assert_eq!(Kind::of(card, None), Kind::Other);
+        // A root that names its kind needs no folder.
+        assert_eq!(Kind::of(Path::new("/content/Samples"), None), Kind::Samples);
+        assert_eq!(
+            Kind::of(
+                Path::new("/content/Projects"),
+                Some(Path::new("/content/Projects/Demo"))
+            ),
+            Kind::Projects
+        );
     }
 
     #[test]
