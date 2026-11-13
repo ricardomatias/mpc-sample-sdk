@@ -34,6 +34,7 @@ Start here if you have never built a mod:
 22. [Build and install a mod](22-build-and-install.md)
 23. [Autonomous development and emulator testing](23-autonomous-development.md)
 24. [Migrating to v0.2.0](24-safety-migration.md)
+25. [Pad lighting](25-lighting.md)
 
 Every page has a runnable-shaped example. The examples assume:
 
@@ -42,8 +43,8 @@ Every page has a runnable-shaped example. The examples assume:
 crate-type = ["cdylib"]
 
 [dependencies]
-mpc-sample-sdk = { git = "https://github.com/ioma8/mpc-sample-sdk", tag = "v0.2.1" }
-# v0.2.0 is API-breaking; see 24-safety-migration.md.
+mpc-sample-sdk = { git = "https://github.com/ioma8/mpc-sample-sdk", branch = "main" }
+# Pin a reviewed commit or release tag in production.
 ```
 
 A mod is installed by `export_mod!`, built as a `cdylib`, and loaded with

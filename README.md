@@ -52,13 +52,17 @@ It owns everything that is not a feature:
   accessors require UI-thread ownership and non-overlapping borrows; see
   [state safety and migration](docs/15-state.md).
 
+## Local development changes
+
+The current checkout exposes hardware identifiers in `event::button` and `event::cc`, named pad and trim operations in `platform::control`, and generated-audio extraction in `platform::extract::generated`. Raw control operations remain available. Seed borrowing and firmware object mutations require the live objects on their UI thread. `trim::edges` accepts its threshold explicitly and no longer reads a minimod-specific environment variable.
+
 ## Install
 
 The crate is published from this repository:
 
 ```toml
 [dependencies]
-mpc-sample-sdk = { git = "https://github.com/ioma8/mpc-sample-sdk", tag = "v0.2.1" }
+mpc-sample-sdk = { git = "https://github.com/ioma8/mpc-sample-sdk", branch = "main" }
 ```
 
 A mod builds as a `cdylib`:
@@ -81,8 +85,8 @@ steps: [docs/22-build-and-install.md](docs/22-build-and-install.md).
 ## Documentation
 
 The hands-on guide is in [`docs/`](docs/README.md). It has one short page per
-topic — buttons, pads, encoder, knobs, MIDI, screens, drawing, samples, audio,
-tasks, Extract, WAV files, state, firmware, build/install and the
+topic — buttons, pads, encoder, knobs, MIDI, screens, drawing, samples, audio, pad
+lighting, tasks, Extract, WAV files, state, firmware, build/install and the
 [emulator loop](docs/23-autonomous-development.md) — and every page ends with a
 code example.
 

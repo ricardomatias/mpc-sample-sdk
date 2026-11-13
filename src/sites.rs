@@ -35,7 +35,7 @@ pub fn notes_ready() -> bool {
 }
 
 /// How many sites the SDK installs.
-const SITES: usize = 23;
+const SITES: usize = 24;
 
 /// The displaced function of every site, zero when it was not installed.
 static mut ORIGINALS: [usize; SITES] = [0; SITES];
@@ -207,6 +207,10 @@ fn table() -> [Site; SITES] {
         Site {
             offset: browser::GET_FILE,
             handler: browser_file_entry as *const (),
+        },
+        Site {
+            offset: 0x0159_f910,
+            handler: lighting as *const (),
         },
     ]
 }
@@ -387,6 +391,48 @@ unsafe extern "C" fn browser_screen_ctor(screen: usize, locator: usize) {
         unsafe { forward(screen, locator) };
         browser::remember_screen(screen);
     }
+}
+
+/// The AC50 per-pad lighting callback: apply the mod's override, then forward.
+///
+/// The callback receives the sender, a pointer to the native `PadLight`
+/// (`RGB | brightness_float << 32`) and the zero-based pad.
+///
+/// # Safety
+///
+/// The app calls this with its own sender, `PadLight` and pad index.
+unsafe extern "C" fn lighting(sender: usize, light: *mut u64, pad: u8) {
+    let native = if light.is_null() {
+        0
+    } else {
+        // SAFETY: the app passes its live PadLight for this callback.
+        unsafe { *light }
+    };
+    crate::platform::lighting::observe(sender, pad, native);
+    if !light.is_null()
+        && let Some(lit) = crate::platform::lighting::override_light(pad)
+    {
+        // SAFETY: the callback owns this temporary PadLight.
+        unsafe { *light = lit };
+    }
+    // SAFETY: site 23 is the app's lighting callback; forward its arguments.
+    if let Some(forward) = unsafe { original::<unsafe extern "C" fn(usize, *mut u64, u8)>(23) } {
+        // SAFETY: forwards the app's callback arguments unchanged.
+        unsafe { forward(sender, light, pad) };
+    }
+}
+
+/// Send one already-packed `PadLight` through the original callback.
+pub(crate) fn send_light(sender: usize, light: u64, pad: u8) -> bool {
+    // SAFETY: site 23 is the installed lighting callback.
+    let Some(forward) = (unsafe { original::<unsafe extern "C" fn(usize, *mut u64, u8)>(23) })
+    else {
+        return false;
+    };
+    let mut light = light;
+    // SAFETY: the original callback converts and sends this live `PadLight`.
+    unsafe { forward(sender, core::ptr::from_mut(&mut light), pad) };
+    true
 }
 
 unsafe extern "C" fn sample_service_ctor(
@@ -598,7 +644,7 @@ unsafe extern "C" fn buttons(event: usize) -> i32 {
         // SAFETY: and its value at +9.
         u32::from(unsafe { *(event as *const u8).add(9) })
     };
-    let pressed = value == 0x7f;
+    let pressed = value == event::button::PRESSED;
     // The event's first word is its context; `+0x10` there is the surface.
     let surface = if event == 0 {
         0
@@ -625,10 +671,10 @@ unsafe extern "C" fn buttons(event: usize) -> i32 {
     let flow = with_mod(|module| module.on_button(message)).unwrap_or(ButtonFlow::Forward);
     // Track the hold state after the mod has seen the event, so it sees the
     // state that was in effect when the key was pressed.
-    if code == 0x31 {
+    if code == event::button::SHIFT {
         event::set_shift(pressed);
     }
-    if code == 0x09 {
+    if code == event::button::ERASE {
         event::set_erase(pressed);
     }
     if code == crate::platform::pads::SAMPLE_SELECT {
