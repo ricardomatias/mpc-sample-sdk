@@ -119,6 +119,6 @@ mod tests {
     fn a_job_starts_with_no_outputs() {
         let job = RenderJob::new(source(), 0, vec![0.0; 8]);
         assert_eq!(job.source, source());
-        assert!(job.outputs.is_empty());
+        assert_eq!(job.outputs, []);
     }
 }

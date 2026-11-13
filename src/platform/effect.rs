@@ -259,7 +259,7 @@ impl Instance {
                     rendered[frame * 2] = left;
                     rendered[frame * 2 + 1] = right;
                 } else {
-                    rendered[frame] = 0.5 * (left + right);
+                    rendered[frame] = f32::midpoint(left, right);
                 }
             }
             start += count;

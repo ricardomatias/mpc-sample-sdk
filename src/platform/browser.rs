@@ -950,14 +950,14 @@ mod tests {
     #[test]
     fn the_rows_on_screen_are_what_the_contents_object_last_showed() {
         let mut shown = Shown::new();
-        assert!(shown.files(1).is_empty());
+        assert_eq!(shown.files(1), Vec::<PathBuf>::new());
         let rows = vec![PathBuf::from("/data/a.wav"), PathBuf::from("/data/b.wav")];
         shown.record(1, rows.clone(), false);
         shown.record(2, vec![PathBuf::from("/media/x.wav")], true);
         assert_eq!(shown.files(1), rows);
         assert_eq!(shown.files(2), [PathBuf::from("/media/x.wav")]);
         shown.record(1, Vec::new(), true);
-        assert!(shown.files(1).is_empty());
+        assert_eq!(shown.files(1), Vec::<PathBuf>::new());
     }
 
     #[test]
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn nothing_scrolls_or_lists_before_the_app_builds_the_browser() {
         assert_eq!(scrolled(), None);
-        assert!(listed().is_empty());
+        assert_eq!(listed(), Vec::<PathBuf>::new());
         assert!(!is_replaced());
     }
 
@@ -1058,7 +1058,7 @@ mod tests {
             capacity: 0,
         };
         assert!(empty.is_empty());
-        assert!(read_files(&empty).is_empty());
+        assert_eq!(read_files(&empty), Vec::<PathBuf>::new());
     }
 
     #[test]

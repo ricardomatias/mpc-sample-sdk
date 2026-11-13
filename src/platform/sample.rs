@@ -152,8 +152,8 @@ impl Memory {
             if !image::read(self.buffer.checked_add(at * 4)?, chunk) {
                 return None;
             }
-            for (slot, raw) in out[at..at + count].iter_mut().zip(chunk.chunks_exact(4)) {
-                *slot = f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            for (slot, raw) in out[at..at + count].iter_mut().zip(chunk.as_chunks::<4>().0) {
+                *slot = f32::from_le_bytes(*raw);
             }
             at += count;
         }

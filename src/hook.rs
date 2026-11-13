@@ -243,8 +243,8 @@ impl HookEngine {
         if !image::read(site, &mut buffer) {
             return Err(HookError::Unreadable);
         }
-        for (word, chunk) in prologue.iter_mut().zip(buffer.chunks_exact(4)) {
-            *word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for (word, chunk) in prologue.iter_mut().zip(buffer.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*chunk);
         }
         if is_pc_relative(prologue[0]) {
             return Err(HookError::PcRelative {
